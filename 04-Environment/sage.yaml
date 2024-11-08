@@ -1,0 +1,17 @@
+name: Sage
+channels:
+  - conda-forge
+  - bioconda
+  - defaults
+dependencies:
+  - _libgcc_mutex=0.1=conda_forge
+  - _openmp_mutex=4.5=2_kmp_llvm
+  - libgcc=14.1.0=h77fa898_1
+  - libgcc-ng=14.1.0=h69a702a_1
+  - libstdcxx-ng=11.2.0=h1234567_1
+  - llvm-openmp=14.0.6=h9e868ea_0
+  - mono=6.12.0.182=he621ea3_0
+  - sage-proteomics=0.14.7=h715e4b3_1
+  - thermorawfileparser=1.4.4=ha8f3691_0
+  - zlib=1.2.13=h5eee18b_1
+prefix: /data/Storage_DAS03/home3/menteeE/.conda/envs/Sage

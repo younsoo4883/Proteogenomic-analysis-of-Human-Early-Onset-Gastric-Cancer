@@ -1,0 +1,76 @@
+# 디렉토리 정의
+RAW_DIR = "/data/Storage_DAS03/mentee/GastricCancer/raw/phosphoproteomics/PDC000215/1/Raw_Mass_Spectra"
+MZML_DIR = "/data/Storage_DAS03/mentee/GastricCancer/raw/GC_phospho_proteome/mzML"
+LOG_DIR = f"{MZML_DIR}/log"
+MERGED_DIR = f"{MZML_DIR}/merged_mzML"
+
+# 디렉토리가 존재하지 않을 경우 생성
+shell("mkdir -p {LOG_DIR}")
+shell("mkdir -p {MERGED_DIR}")
+
+# 샘플 리스트 (RAW_DIR 내에 있는 디렉토리 이름들)
+SAMPLES = [d for d in os.listdir(RAW_DIR) if os.path.isdir(os.path.join(RAW_DIR, d))]
+
+# conda 초기화
+shell("source /opt/ohpc/pub/anaconda3/etc/profile.d/conda.sh")
+
+# 규칙들
+
+# 각 샘플에 대해 ThermoRawFileParser를 사용하여 전처리하는 규칙
+rule preprocess_raw_files:
+    input:
+        directory=lambda wildcards: f"{RAW_DIR}/{wildcards.sample}/Proprietary"
+    output:
+        mzml_dir=f"{MZML_DIR}/{{sample}}"
+    params:
+        log=f"{LOG_DIR}/{{sample}}.thermo.log"
+    conda:
+        "envs/sage.yaml"  # Sage 환경 정의
+    shell:
+        """
+        mkdir -p {output.mzml_dir}
+        ThermoRawFileParser -d={input.directory} -o={output.mzml_dir} -f=2 -g -m=0 2> {params.log}
+        """
+
+# preprocess_raw_files 규칙의 출력을 모두 수집하는 규칙 추가
+rule all_preprocess:
+    input:
+        expand(f"{MZML_DIR}/{{sample}}", sample=SAMPLES)
+
+# FileMerger를 사용하여 각 샘플에 대한 mzML 파일을 병합하는 규칙
+rule merge_mzml_files:
+    input:
+        mzml_dir=f"{MZML_DIR}/{{sample}}"  # 디렉토리를 입력으로 받음
+    output:
+        merged_mzml=f"{MERGED_DIR}/{{sample}}.merged.mzML"
+    params:
+        log=f"{LOG_DIR}/{{sample}}.FileMerger.log"
+    conda:
+        "envs/openms.yaml"  # OpenMS 환경 정의
+    shell:
+        """
+        FileMerger -in {input.mzml_dir}/*.mzML.gz -in_type 'mzML' -out {output.merged_mzml} 2> {params.log}
+        """
+
+# 병합된 mzML 파일에 대해 SAGE를 실행하는 규칙
+rule run_sage:
+    input:
+        merged_mzml=f"{MERGED_DIR}/{{sample}}.merged.mzML"
+    output:
+        sage_log=f"{LOG_DIR}/{{sample}}.run_sage.log"
+    conda:
+        "envs/sage.yaml"  # Sage 환경 정의
+    shell:
+        """
+        sage {input.merged_mzml} -o {MERGED_DIR} 2> {output.sage_log}
+        """
+
+# 최종 출력 파일들의 전체 경로를 미리 계산
+MERGED_FILES = [f"{MERGED_DIR}/{sample}.merged.mzML" for sample in SAMPLES]
+SAGE_LOGS = [f"{LOG_DIR}/{sample}.run_sage.log" for sample in SAMPLES]
+
+# 최종 all 규칙 - 와일드카드 없이 구체적인 파일 목록 사용
+rule all:
+    input:
+        MERGED_FILES + SAGE_LOGS
+
