@@ -8,17 +8,18 @@ This project aims to discover meaningful molecular signatures that are difficult
 
 Data
 -----------
-Data Type	Source	Description	Sample Count
-Exome Sequencing Data	NCBI SRA (PRJNA505380)	Whole exome sequencing (WES) data for tumor and normal tissues from 80 patients	160
-RNA Sequencing Data	NCBI SRA (PRJNA508414)	RNA sequencing data for tumor and normal tissues from 80 patients	160
-Global Proteomics Data	CPTAC (PDC000214)	Mass-spectrometry-based global proteomics data	160
-Phosphoproteomics Data	CPTAC (PDC000215)	Mass-spectrometry-based phosphoproteomics data	160
-Glycoproteomics Data	CPTAC (PDC000216)	Mass-spectrometry-based glycoproteomics data	160
+
+Exome Sequencing Data	NCBI SRA (PRJNA505380)
+RNA Sequencing Data	NCBI SRA (PRJNA508414)
+Global Proteomics Data	CPTAC (PDC000214)
+Phosphoproteomics Data	CPTAC (PDC000215)	
+Glycoproteomics Data	CPTAC (PDC000216)	
 
 
 
 Snakemake
 -----------
+
 Preprocessing from raw proteomics data using snakemake pipeline to produce proteomics quantification data. Refer to each pipeline in **02-preprocessing** directory.
 Find the snakemake documentation (https://snakemake.readthedocs.io/en/stable/index.html), and view the detailed usage manuals.
 
