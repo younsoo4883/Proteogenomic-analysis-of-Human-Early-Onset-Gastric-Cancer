@@ -20,7 +20,7 @@ Glycoproteomics Data: CPTAC (PDC000216)
 Snakemake
 -----------
 
-Preprocessing from raw proteomics data using snakemake pipeline to produce proteomics quantification data. Refer to each pipeline in **02-preprocessing** directory.
+Preprocessing from raw omics data using snakemake pipeline to produce proteomics quantification data. Refer to each pipeline in **02-preprocessing** directory.
 Find the snakemake documentation (https://snakemake.readthedocs.io/en/stable/index.html), and view the detailed usage manuals.
 
     snakemake --snakefile [Snakefile] --cores [numb_of_cores] --use-conda
