@@ -6,6 +6,16 @@ Summary
 
 This project aims to discover meaningful molecular signatures that are difficult to obtain solely through genomic analysis by integrating genomic and proteomic data from gastric cancer patients, and to classify distinct subtypes of gastric cancer. Specifically, we focused on early-onset gastric cancer, performing multi-omics level analysis on tumor and normal tissues from diffuse-type gastric cancer patients using whole exome, transcriptome, proteome, and phosphoproteome data. As a result, we identified peptides with significantly increased phosphorylation levels in samples with specific gene mutations and found multiple signaling pathways that correlate somatic mutations with phosphopeptide levels. Additionally, we assessed the correlation between mRNA and protein levels, determining signaling pathways associated with strong correlations and investigating their relationship with patient survival outcomes. We performed clustering based on individual omics data from transcriptome and proteome to identify signature molecules for each subtype. Furthermore, integrated multi-omics clustering was conducted, leading to the identification of four subtypes, thereby improving the characterization of gastric cancer and the classification of patient groups.
 
+Data
+-----------
+Data Type	Source	Description	Sample Count
+Exome Sequencing Data	NCBI SRA (PRJNA505380)	Whole exome sequencing (WES) data for tumor and normal tissues from 80 patients	160
+RNA Sequencing Data	NCBI SRA (PRJNA508414)	RNA sequencing data for tumor and normal tissues from 80 patients	160
+Global Proteomics Data	CPTAC (PDC000214)	Mass-spectrometry-based global proteomics data	160
+Phosphoproteomics Data	CPTAC (PDC000215)	Mass-spectrometry-based phosphoproteomics data	160
+Glycoproteomics Data	CPTAC (PDC000216)	Mass-spectrometry-based glycoproteomics data	160
+
+
 
 Snakemake
 -----------
