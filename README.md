@@ -9,11 +9,11 @@ This project aims to discover meaningful molecular signatures that are difficult
 Data
 -----------
 
-Exome Sequencing Data - NCBI SRA (PRJNA505380)  
-RNA Sequencing Data - NCBI SRA (PRJNA508414)  
-Global Proteomics Data - CPTAC (PDC000214)  
-Phosphoproteomics Data - CPTAC (PDC000215)  
-Glycoproteomics Data - CPTAC (PDC000216)
+Exome Sequencing Data: NCBI SRA (PRJNA505380)  
+RNA Sequencing Data:  NCBI SRA (PRJNA508414)  
+Global Proteomics Data: CPTAC (PDC000214)  
+Phosphoproteomics Data: CPTAC (PDC000215)  
+Glycoproteomics Data: CPTAC (PDC000216)
 
 
 
