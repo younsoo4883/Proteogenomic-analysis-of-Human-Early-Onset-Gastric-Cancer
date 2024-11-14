@@ -1,15 +1,24 @@
 # Proteogenomic-analysis-of-Human-Early-Onset-Gastric-Cancer
+=======
 
-**1. Background**
-
-Single-omics analyses are limited to specific molecular types, making it challenging to fully explain the complexity of biological systems. Single-omics approaches often face limitations in providing a comprehensive and integrative understanding of certain diseases or biological phenomena, potentially missing key biological information by excluding other molecular-level data. For instance, analyzing only gene expression data may fail to capture crucial biological information, such as changes in protein function or metabolic pathways. Since biological processes involve complex interactions among various molecules, single-omics approaches alone have limitations in elucidating the multifaceted mechanisms of diseases.
-
-To overcome these limitations, multi-omics approaches that encompass various molecular-level data, including genomics, transcriptomics, proteomics, and metabolomics, have emerged. Compared to single-omics, multi-omics analyses offer a deeper understanding of disease onset and progression, contributing significantly to optimizing diagnostic and therapeutic strategies for complex diseases like cancer. By integrating diverse biological datasets, multi-omics analyses have become an essential tool in modern cancer research for understanding the complexity of diseases at a higher level.
-
-In the case of gastric cancer, although the overall incidence has been declining in recent decades, the incidence in younger populations is increasing. In South Korea, approximately 5% of gastric cancer cases are diagnosed in individuals under the age of 40, and this patient group tends to exhibit a high rate of metastasis. Although some research has been conducted to identify the molecular characteristics related to survival and subtypes in diffuse-type gastric cancer in younger individuals, there remains a lack of molecular data specific to this younger cohort. This gap hinders the understanding of the molecular mechanisms underlying early-onset gastric cancer, and limits the development of precision diagnostics and tailored therapeutic strategies. Therefore, identifying clinically useful biomarkers and therapeutic targets is crucial.
-
-Moreover, the treatment of gastric cancer often follows standardized protocols without adequately considering the tumor characteristics and responsiveness of individual patients, resulting in suboptimal treatment efficacy. This study aims to collect and analyze multi-omics data, including genomic data obtained through next-generation sequencing (NGS) and proteomic data through mass spectrometry, from tumor and adjacent normal tissues of 80 early-onset gastric cancer patients. By employing NGS-based multi-omics analysis, we aim to comprehensively investigate the molecular mechanisms of early-onset gastric cancer and identify tailored diagnostic and therapeutic targets.
-
-**2. Summary**
+Summary
+-------
 
 This project aims to discover meaningful molecular signatures that are difficult to obtain solely through genomic analysis by integrating genomic and proteomic data from gastric cancer patients, and to classify distinct subtypes of gastric cancer. Specifically, we focused on early-onset gastric cancer, performing multi-omics level analysis on tumor and normal tissues from diffuse-type gastric cancer patients using whole exome, transcriptome, proteome, and phosphoproteome data. As a result, we identified peptides with significantly increased phosphorylation levels in samples with specific gene mutations and found multiple signaling pathways that correlate somatic mutations with phosphopeptide levels. Additionally, we assessed the correlation between mRNA and protein levels, determining signaling pathways associated with strong correlations and investigating their relationship with patient survival outcomes. We performed clustering based on individual omics data from transcriptome and proteome to identify signature molecules for each subtype. Furthermore, integrated multi-omics clustering was conducted, leading to the identification of four subtypes, thereby improving the characterization of gastric cancer and the classification of patient groups.
+
+
+Snakemake
+-----------
+Preprocessing from raw proteomics data using snakemake pipeline to produce proteomics quantification data. Refer to each pipeline in **02-preprocessing** directory.
+Find the snakemake documentation (https://snakemake.readthedocs.io/en/stable/tutorial/setup.html#run-tutorial-for-free-in-the-cloud-via-gitpod), and view the detailed usage manuals.
+
+    snakemake --snakefile [Snakefile] --cores [numb_of_cores] --use-conda
+
+Downstream analysis were constructed using R or python programming language.
+
+
+Reference
+-------
+
+Mun DG, Bhin J, et al. Proteogenomic Characterization of Human Early-Onset Gastric Cancer. Cancer Cell. 2019 Jan 14;35(1):111-124.e10. doi: 10.1016/j.ccell.2018.12.003. PMID: 30645970.
+(https://github.com/user-attachments/assets/6d4b82d6-89ef-4826-b622-e35b8558444a)
