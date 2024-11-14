@@ -1,0 +1,70 @@
+---
+title: "glyco_analysis_Fig_5A"
+author: "ParkChaeRin"
+date: "2024-11-12"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+```{r}
+
+############################################
+# Figure 5A
+############################################
+
+library(ComplexHeatmap)
+library(circlize)
+library(colorRamp2)
+library(ggplot2)
+library(reshape2)
+
+# 데이터 불러오기
+arid1a_data <- read.csv("C:/Users/cofls/Desktop/LAIDD 멘토링/Proteomics/Proteomics/arid1a_glyco_heatmapinput.csv")
+arid1a_data[is.na(arid1a_data)] <- 0
+
+# Read the patient metadata for annotations
+patient_meta <- read.csv("C:/Users/cofls/Desktop/LAIDD 멘토링/Proteomics/Proteomics/arid1a_glyco_patient_meta.csv")
+
+# 이 데이터를 "long format"으로 변환하기
+patient_meta_long <- as.data.frame(t(patient_meta))  # 전치(transpose)하여 long format으로 변환
+
+# 메타데이터의 색상 설정
+color_list <- list(
+  Mutation = c("Mut" = "black", "WT" = "white"),
+  Histology = c("Diffuse" = "ivory", "Intestinal" = "darkorchid4", "Mixed" = "darkorchid1", "Others" = "gray", "N/A" = "gray"),
+  MSI = c("MSI-H" = "darkgreen", "MSS/MSI-L" = "ivory"),
+  EBV = c("EBV-" = "ivory", "EBV+" = "darkorange2"),
+  Gender = c("F" = "pink", "M" = "skyblue")
+)
+
+# 기존 메타데이터를 변수로 바꾸기
+patient_meta_long$EBV <- patient_meta_long$V1
+patient_meta_long$MSI <- patient_meta_long$V2
+patient_meta_long$Gender <- patient_meta_long$V3
+patient_meta_long$Histology <- patient_meta_long$V4
+patient_meta_long$Mutation <- patient_meta_long$V5
+
+# ComplexHeatmap을 이용한 heatmap 및 annotation 생성
+ha <- HeatmapAnnotation(
+  df = patient_meta_long[, c("EBV", "MSI", "Gender", "Histology", "Mutation")],
+  col = color_list
+)
+
+# heatmap 생성
+heatmap <- Heatmap(
+  as.matrix(arid1a_data),
+  name = "log2FC",
+  col = colorRamp2(c(-1.5, 0, 1.5), c("green", "black", "red")),
+  top_annotation = ha,
+  cluster_rows = FALSE,
+  cluster_columns = FALSE,
+  show_row_names = FALSE,
+  show_column_names = FALSE
+)
+
+# heatmap 출력
+draw(heatmap)
+```

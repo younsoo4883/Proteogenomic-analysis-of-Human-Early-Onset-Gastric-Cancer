@@ -1,0 +1,554 @@
+---
+title: "glycoproteomics_NMF_clustering"
+output: html_document
+date: "2024-10-06"
+---
+
+```{r}
+suppressMessages(library(preprocessCore))
+suppressMessages(library(CancerSubtypes))
+suppressMessages(library(missForest))
+suppressMessages(library(ComplexHeatmap))
+suppressMessages(library(ggplot2))
+suppressMessages(library(circlize))
+suppressMessages(library(colorRamp2))
+```
+
+### Read input file (proteomics)
+```{r}
+# Read phosphopeptide pre-processed input files
+gp.df <- read.delim("/Users/onco/Downloads/LAIDD_GASTRIC_R/Proteomics/Proteomics/glycopeptide_change.txt", header=TRUE, sep = "\t", quote=NULL)
+#gp.df <- read.delim("C:/Users/YounsooKang/Downloads/LAIDD_GASTRIC_R/Proteomics/Proteomics/glycopeptide_change.txt", header=TRUE, sep = "\t", quote=NULL)
+```
+
+### Filter NA
+```{r}
+# Filter only the rows where more than 50% of the values are not NA.
+gp.df.f <- gp.df[rowMeans(!is.na(gp.df[, 3:ncol(gp.df)])) >= 0.5, ]
+
+dim(gp.df)
+dim(gp.df.f)
+```
+
+### Quantile Normalization
+```{r}
+# Separate gene information
+prot_info <- gp.df.f[, 1:2]  
+gp.data.mat <- as.matrix(gp.df.f[, 3:ncol(gp.df.f)])  
+
+# Convert NaN into NA
+gp.data.mat[is.nan(gp.data.mat)]<- NA
+
+# Perform quantile normalization
+library(preprocessCore)
+norm.gp.data <- normalize.quantiles(gp.data.mat)
+
+#View(norm.gp.data)
+
+#head(as.data.frame(norm.gp.data))
+
+
+# Convert normalized data back to a dataframe and combine with gene information
+norm.gp.df <- as.data.frame(norm.gp.data)
+colnames(norm.gp.df) <- colnames(gp.df.f)[3:ncol(gp.df.f)] 
+
+# Combine gene information with normalized data
+final.gp.df <- cbind(prot_info, norm.gp.df)
+
+# Compare data distribution
+data.checkDistribution(gp.df.f[3:ncol(gp.df.f)])
+data.checkDistribution(final.gp.df[3:ncol(final.gp.df)])
+
+```
+
+### Select one of the missing value imputation method
+
+### Impute missing values using missForest (method1)
+```{r}
+library(missForest)
+
+# impute missing values using random forest based algorithm
+imputed_data <- missForest(final.gp.df[,3:ncol(final.gp.df)])
+
+# imputed dataframe stored in imputed_data$ximp
+final.gp.df.filt <- imputed_data$ximp
+final.gp.df.filt <- cbind(final.gp.df[,1:2], final.gp.df.filt)
+
+NRMSE <- imputed_data$OOBerror  # 성능 평가 지표
+
+cat("NRMSE (Normalized Root Mean Squared Error):", NRMSE, "\n")
+
+# result
+head(final.gp.df.filt)
+```
+
+### Impute missing values using mice (method2)
+```{r}
+library(mice)
+
+imputed_data <- mice(final.gp.df[,3:ncol(final.gp.df)], m = 5, maxit = 50, meth = 'pmm', seed = 123)
+
+final.gp.df.filt <- cbind(final.gp.df[,1:2], complete(imputed_data))
+
+# save intermediate result
+#write.table(final.gp.df.filt, "/Users/onco/Downloads/LAIDD_GASTRIC_R/Proteomics/Proteomics/imputed_gp_change.txt", row.names=F, col.names=T, sep="\t", quote=FALSE)
+```
+
+```{r}
+# load intermediate result
+final.gp.df.filt <- read.delim("/Users/onco/Downloads/LAIDD_GASTRIC_R/Proteomics/Proteomics/imputed_gp_change.txt", header=T, sep="\t", quote=NULL)
+#final.gp.df.filt <- read.delim("C:/Users/YounsooKang/Downloads/LAIDD_GASTRIC_R/Proteomics/Proteomics/imputed_gp_change.txt", header=T, sep="\t", quote=NULL)
+```
+
+
+### Top variant peptides
+```{r}
+# Calculate median absolute deviation
+mad_values <- apply(final.gp.df.filt[3:ncol(final.gp.df.filt)], 1, mad)
+
+# Subset variant peptides
+
+# count
+num_genes <- nrow(final.gp.df.filt)
+
+# top 10% variant peptides
+top_10_percent_threshold <- quantile(mad_values, 0.90)
+top_10_df <- final.gp.df.filt[mad_values >= top_10_percent_threshold, ]
+
+# top 20% variant peptides
+top_20_percent_threshold <- quantile(mad_values, 0.80)
+top_20_df <- final.gp.df.filt[mad_values >= top_20_percent_threshold, ]
+
+# top 30% variant peptides
+top_30_percent_threshold <- quantile(mad_values, 0.70)
+top_30_df <- final.gp.df.filt[mad_values >= top_30_percent_threshold, ]
+
+# result
+dim(top_10_df)  
+dim(top_20_df)  
+dim(top_30_df)  
+
+```
+
+### Decoupling
+```{r}
+# replace negative to zero
+replace_negative <- function(x) {
+  x[x < 0] <- 0
+  return(as.matrix(x))
+}
+
+# only positives
+positive_10 <- replace_negative(top_10_df[3:ncol(top_10_df)])
+positive_20 <- replace_negative(top_20_df[3:ncol(top_20_df)])
+positive_30 <- replace_negative(top_30_df[3:ncol(top_30_df)])
+
+
+# only negatives
+negative_10 <- replace_negative(-top_10_df[3:ncol(top_10_df)])
+negative_20 <- replace_negative(-top_20_df[3:ncol(top_20_df)])
+negative_30 <- replace_negative(-top_30_df[3:ncol(top_30_df)])
+
+# merge
+merge_10 <- list(positive_10, negative_10)
+merge_20 <- list(positive_20, negative_20)
+merge_30 <- list(positive_30, negative_30)
+```
+
+### consensus NMF clustering from CancerSubtypes package
+### Cophenetic correlation plot
+
+```{r}
+# Cluster range
+cluster_range <- 2:6
+#cluster_range=3
+
+# Save results
+results <- list()
+
+cophenetic_corr_values <- c()
+
+# cophenetic correlation 값을 저장할 리스트
+cophenetic_corr_values_list <- list()
+
+# 각 merge 데이터에 대해 반복
+for (percentage in c("10%", "20%", "30%")) {
+  
+  # merge 데이터 설정
+  merge_data <- switch(percentage,
+                       "10%" = merge_10,
+                       "20%" = merge_20,
+                       "30%" = merge_30)
+  
+  # cophenetic correlation 값을 저장할 벡터 초기화
+  cophenetic_corr_values <- numeric(length(cluster_range))
+  
+  # 각 클러스터에 대해 CNMF 실행
+  for (k in cluster_range) {
+    cat("Running CNMF with", k, "clusters on", percentage, "data...\n")
+    
+    # CNMF 실행 결과 저장
+    results[[paste0("Cluster_", k, "_", percentage)]] <- ExecuteCNMF(merge_data, clusterNum = k, nrun = 200)
+    distance_matrix <- results[[paste0("Cluster_", k, "_", percentage)]]$distanceMatrix
+    
+    # Cophenetic correlation 계산
+    d1 <- dist(distance_matrix)
+    hclust_obj <- hclust(d1, method = "average")
+    d2 <- cophenetic(hclust_obj)
+    cophenetic_corr <- cor(d1, d2)
+    
+    # cophenetic correlation 값을 벡터에 저장
+    cophenetic_corr_values[k - min(cluster_range) + 1] <- cophenetic_corr
+    
+    cat("Cophenetic correlation for", k, "clusters:", cophenetic_corr, "\n")
+  }
+  
+  # 결과를 리스트에 저장
+  cophenetic_corr_values_list[[percentage]] <- cophenetic_corr_values
+}
+
+# 데이터 프레임 생성
+data <- data.frame(
+  Clusters = rep(cluster_range, 3),
+  Cophenetic = unlist(cophenetic_corr_values_list),
+  Percentage = rep(c("10%", "20%", "30%"), each = length(cluster_range))
+)
+
+# 결과 출력
+print(data)
+```
+
+# silhouette plots
+```{r}
+# Generate silhouette plots for each percentage data
+for (percentage in c("10%", "20%", "30%")) {
+    for (i in cluster_range) {
+        # Retrieve group and distance matrix for each cluster and percentage
+        result_key <- paste0("Cluster_", i, "_", percentage)
+        
+        # Check if the result exists
+        if (!is.null(results[[result_key]])) {
+            cluster_group <- results[[result_key]]$group
+            distance_matrix <- results[[result_key]]$distanceMatrix
+            
+            # Calculate silhouette
+            if (!is.null(cluster_group) && !is.null(distance_matrix)) {
+                sil_result <- silhouette_SimilarityMatrix(cluster_group, distance_matrix)
+                
+                # Generate plot
+                plot(sil_result, main = paste("Silhouette Plot for", i, "Clusters on", percentage, "Data"))
+            } else {
+                cat("Skipping cluster", i, "with", percentage, "data: NULL values detected in group or distanceMatrix\n")
+            }
+        } else {
+            cat("No result found for", result_key, "\n")
+        }
+    }
+}
+```
+
+### Final cNMF results
+```{r}
+# select the best results for MAD=20, k=3
+cluster_group20_3 <- results$`Cluster_3_20%`$group
+distance_matrix20_3 <- results$`Cluster_3_20%`$distanceMatrix
+sil20_result_3 <- silhouette_SimilarityMatrix(cluster_group20_3, distance_matrix20_3)
+Consensus20_3 <- results$`Cluster_3_20%`$originalResult@consensus
+```
+
+### plots
+```{r}
+# Consensus matrix heatmap
+
+# group info & colors
+group_info <- paste0("Gly", cluster_group20_3)
+group_colors <- c("Gly1" = "orange", "Gly2" = "green", "Gly3" = "purple")
+
+# Bottom annotation
+bottom_annotation <- HeatmapAnnotation(
+  group = group_info, 
+  col = list(group = group_colors),
+  annotation_legend_param = list(title = "group"),
+  annotation_height = unit(4, "mm"),
+  show_legend = FALSE
+)
+NMF_heatmap <- Heatmap(Consensus20_3, 
+                      name = "Consensus value", 
+                      show_column_names = FALSE, 
+                      show_row_names = FALSE,
+                      bottom_annotation = bottom_annotation)
+NMF_heatmap
+
+
+# Silhouette width plot
+sil_plot <- plot(sil20_result_3, col="darkblue")
+# Extract Silhouette values
+sil_values <- sil20_result_3[, "sil_width"]  
+sorted_sil_values <- sort(sil_values)
+
+silhouette_plot <- barplot(sorted_sil_values, horiz = TRUE, 
+                              col = "darkblue",
+                              border = TRUE,
+                              xlab = "Silhouette width", 
+                              ylab = "Sorted samples", 
+                              xlim = c(0, max(sorted_sil_values)))
+silhouette_plot 
+
+
+# Cophenetic plot
+cophenetic_plot <- ggplot(data, aes(x = Clusters, y = Cophenetic, color = Percentage, group = Percentage)) +
+                          geom_line(size = 1) +                       
+                          geom_point(size = 2) +                      
+                          labs(title = "Cophenetic Correlation vs Number of Clusters", 
+                               x = "Number of clusters", 
+                               y = "Cophenetic correlation") + 
+                          theme_minimal() +                           
+                          theme(plot.title = element_text(hjust = 0.5)) + 
+                          scale_color_manual(values = c("green", "blue", "red"))  
+cophenetic_plot
+```
+
+
+### Save plots
+```{r}
+#pdf("C:/Users/YounsooKang/Downloads/LAIDD_GASTRIC_R/Proteomics/Proteomics/gp_heatmap_output.pdf", width = 12, height = 10)
+pdf("/Users/onco/Downloads/LAIDD_GASTRIC_R/Proteomics/Proteomics/gp_heatmap_output.pdf", width = 12, height = 10)
+NMF_heatmap
+dev.off()
+
+
+#pdf("C:/Users/YounsooKang/Downloads/LAIDD_GASTRIC_R/Proteomics/Proteomics/gp_silhouette_barplot.pdf", width = 12, height = 10)
+pdf("/Users/onco/Downloads/LAIDD_GASTRIC_R/Proteomics/Proteomics/gp_silhouette_barplot.pdf", width = 12, height = 10)
+silhouette_plot 
+dev.off()
+
+
+#pdf("C:/Users/YounsooKang/Downloads/LAIDD_GASTRIC_R/Proteomics/Proteomics/gp_cophenetic_coef.pdf", width = 12, height = 10)
+pdf("/Users/onco/Downloads/LAIDD_GASTRIC_R/Proteomics/Proteomics/gp_cophenetic_coef.pdf", width = 12, height = 10)
+cophenetic_plot
+dev.off()
+```
+
+
+
+
+
+
+
+
+### Subtype Signature Molecules
+```{r}
+# Set sample name in the first column
+rownames(sil20_result_3) <- colnames(top_20_df)[3:ncol(top_20_df)]
+
+# Select samples with silhouette width > 0
+positive_sil_samples <- rownames(sil20_result_3)[sil20_result_3[, 'sil_width'] > 0]
+negative_sil_samples <- rownames(sil20_result_3)[sil20_result_3[, 'sil_width'] < 0]
+
+# positive silhouette matrix
+sil20_result_3_pos <- sil20_result_3[positive_sil_samples,]
+dim(sil20_result_3_pos)
+
+# Filter the original data frame to keep only the samples with positive silhouette scores
+positive_sample_df <- top_20_df[, c("Peptide", "Symbol", positive_sil_samples)]
+
+# 필요한 데이터 준비
+top_20_df_pos <- top_20_df[, c("Peptide", "Symbol", positive_sil_samples)]
+```
+
+
+```{r}
+rownames(top_20_df_pos) <- top_20_df_pos$Peptide
+rownames(top_20_df) <- top_20_df$Peptide
+```
+
+### DEP
+```{r}
+# Perform t-tests to identify DEGs for each cluster with the additional fold change condition
+find_deg_with_fc <- function(cluster, data, p_thresh = 0.05, fc_thresh = 2) {
+  
+  target_cluster <- rownames(sil20_result_3_pos)[sil20_result_3_pos[, 'cluster'] == cluster]
+  other_clusters <- rownames(sil20_result_3_pos)[sil20_result_3_pos[, 'cluster'] != cluster]
+  
+  target_df <- data[, target_cluster]  # target cluster
+  other_df <- data[, other_clusters]  # other clusters
+  
+  # Perform t-test and calculate fold change for each gene
+  deg_genes <- apply(data, 1, function(gene_expr) {
+    # Perform t-test
+    t_test <- t.test(gene_expr[target_cluster], gene_expr[other_clusters])
+    
+    # Calculate mean values
+    mean_target_cluster <- mean(gene_expr[target_cluster])
+    mean_other_clusters <- mean(gene_expr[other_clusters])
+    
+    # Calculate fold change
+    fold_change <- mean_target_cluster  / mean_other_clusters
+    
+    # Calculate median values
+    median_target_cluster <- median(gene_expr[target_cluster])
+    median_other_clusters <- median(gene_expr[other_clusters])
+    
+    # Only return genes where p-value is less than threshold and fold change is greater than or equal to threshold
+    if (t_test$p.value < p_thresh && 
+        #fold_change >= fc_thresh && 
+        median_target_cluster > 0 && 
+        median_other_clusters < 0 &&  
+        median_target_cluster > median_other_clusters) {  
+      return(TRUE)
+    } else {
+      return(FALSE)
+    }
+  })
+  
+  return(rownames(data)[deg_genes])
+}
+```
+
+```{r}
+# Find DEGs with the additional fold change filter for each cluster
+deg_cluster1 <- find_deg_with_fc(1, top_20_df_pos[3:ncol(top_20_df_pos)])
+deg_cluster2 <- find_deg_with_fc(2, top_20_df_pos[3:ncol(top_20_df_pos)])
+deg_cluster3 <- find_deg_with_fc(3, top_20_df_pos[3:ncol(top_20_df_pos)])
+
+# DEPs for each cluster
+length(deg_cluster1) # phos1 78
+length(deg_cluster2) # phos2 127
+length(deg_cluster3) # phos3 159
+
+# Samples for each cluster
+cluster1_samples <- rownames(sil20_result_3_pos)[sil20_result_3_pos[, 'cluster'] == 1]
+cluster2_samples <- rownames(sil20_result_3_pos)[sil20_result_3_pos[, 'cluster'] == 2]
+cluster3_samples <- rownames(sil20_result_3_pos)[sil20_result_3_pos[, 'cluster'] == 3]
+
+length(cluster1_samples) #18
+length(cluster2_samples) #36
+length(cluster3_samples) #25
+
+deg_df <- top_20_df_pos[c(deg_cluster1, deg_cluster2, deg_cluster3), c(cluster1_samples, cluster2_samples, cluster3_samples)]
+
+# gene cluster
+gene_clusters <- factor(c(rep("Gly1", length(deg_cluster1)), rep("Gly2", length(deg_cluster2)), rep("Gly3", length(deg_cluster3))))
+names(gene_clusters) <- rownames(as.matrix(deg_df))  
+
+# sample cluster
+sample_clusters <- factor(c(rep("Gly1", length(cluster1_samples)), rep("Gly2", length(cluster2_samples)), rep("Gly3", length(cluster3_samples)))) 
+names(sample_clusters) <- colnames(as.matrix(deg_df))  
+
+```
+
+
+### Signature heatmap
+```{r}
+# color
+col_fun = colorRamp2(c(-2, 0, 2), c("green", "black", "red"))
+
+# bottom annotation
+column_ha <- HeatmapAnnotation(
+  clusters = sample_clusters, 
+  col = list(clusters = c("Gly1" = "#00CED1", "Gly2" = "#1E90FF", "Gly3" = "#F5DEB3")),
+  annotation_legend_param = list(clusters = list(title = "")),
+  show_legend = FALSE,
+  show_annotation_name = FALSE
+)
+
+# right annotation
+row_ha <- rowAnnotation(
+  clusters = gene_clusters, 
+  col = list(clusters = c("Gly1" = "#00CED1", "Gly2" = "#1E90FF", "Gly3" = "#F5DEB3")),
+  annotation_legend_param = list(clusters = list(title = "")),
+  show_legend = TRUE,
+  show_annotation_name = FALSE
+)
+
+# signature heatmap
+subtype_signature_heatmap <- Heatmap(
+  as.matrix(deg_df), 
+  name = "Abundance", 
+  col = col_fun,
+  bottom_annotation = column_ha,  
+  right_annotation = row_ha,  
+  cluster_rows = FALSE,  
+  cluster_columns = FALSE,  
+  show_row_names = FALSE,  
+  show_column_names = FALSE
+)
+
+subtype_signature_heatmap
+```
+
+
+
+### Consensus heatmap
+```{r}
+# positive consensus matrix
+Consensus20_3_pos <- Consensus20_3[positive_sil_samples, positive_sil_samples]
+
+# group info & colors
+group_info_pos <- paste0("Gly", sil20_result_3_pos[,"cluster"])
+group_colors_pos <- c("Gly1" = "#00CED1", "Gly2" = "#1E90FF", "Gly3" = "#F5DEB3")
+
+# Bottom annotation
+bottom_annotation <- HeatmapAnnotation(
+  group = group_info_pos, 
+  col = list(group = group_colors_pos),
+  annotation_legend_param = list(title = ""),
+  annotation_height = unit(4, "mm"),
+  show_legend = TRUE
+)
+
+# Consensus heatmap
+Consensus_heatmap <- Heatmap(Consensus20_3_pos, 
+                      name = "Consensus value", 
+                      show_column_names = FALSE, 
+                      show_row_names = FALSE,
+                      bottom_annotation = bottom_annotation)
+
+Consensus_heatmap
+```
+
+```{r}
+pdf("/Users/Onco/Downloads/LAIDD_GASTRIC_R/Proteomics/Proteomics/signature_heatmap_gp.pdf", width = 12, height = 10)
+subtype_signature_heatmap
+dev.off()
+
+pdf("/Users/Onco/Downloads/LAIDD_GASTRIC_R/Proteomics/Proteomics/consensus_heatmap_gp.pdf", width = 12, height = 10)
+Consensus_heatmap
+dev.off()
+```
+
+
+# Generate input matrix for consensus clustering 
+```{r}
+sil20_result_3
+
+# sil_matrix transponse
+t_sil_matrix <- t(sil20_result_3)
+
+# rownames
+colnames(t_sil_matrix) <- rownames(sil20_result_3)
+
+# Construct matrix
+t_sil_matrix <- t_sil_matrix[c(1,2), ]
+t_sil_matrix <- rbind(t_sil_matrix, NA)
+t_sil_matrix[2, ] <- t_sil_matrix[1, ]
+t_sil_matrix[3, ] <- t_sil_matrix[1, ]
+
+# each row corresponds to identified cluster type
+t_sil_matrix[1, ] <- ifelse(t_sil_matrix[1, ] == 1, 1, 0)
+t_sil_matrix[2, ] <- ifelse(t_sil_matrix[2, ] == 2, 1, 0)
+t_sil_matrix[3, ] <- ifelse(t_sil_matrix[3, ] == 3, 1, 0)
+
+t_sil_matrix <- apply(t_sil_matrix, 2, as.numeric)
+
+# subtype names
+icluster_index_gp <- t_sil_matrix
+rownames(icluster_index_gp)[1:3] <- c("Gly1", "Gly2", "Gly3")
+
+#dim(icluster_index_gp)
+
+# save as csv
+write.csv(icluster_index_gp, "icluster_index_gp.csv", row.names = TRUE)
+
+```
+

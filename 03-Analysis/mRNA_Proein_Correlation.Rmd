@@ -1,0 +1,702 @@
+---
+title: "mRNA-Protein Correlation"
+author: "Jibeom Ko"
+date: "2024-11-12"
+output:
+  pdf_document: default
+  html_document: default
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+## 1. Package Load
+
+```{r, results='hide'}
+library(CancerSubtypes)
+library(GenomicFeatures)
+library(AnnotationDbi)
+library(readr)
+library(BiocManager)
+library(CancerSubtypes)
+library(sigclust)
+library(dplyr)
+library(DESeq2)
+library(httr)
+library(jsonlite)
+library(biomaRt)
+library(preprocessCore)
+```
+
+## 2. mRNA data setting
+
+```{r, results='hide'}
+# 2-1 각자 컴퓨터의 data가 있는 directory의 경로 입력 후 반복문 활용해서 data 불러오기 
+data_dir <- "/Users/jibeomko/Desktop/LAIDD_GC/RNAseq_RSEM" 
+
+data_files <- list.files(data_dir, pattern = "results")
+
+data_list <- list()
+
+for (file in data_files) {
+  file_path <- file.path(data_dir, file)
+  data <- read_delim(file_path, delim = "\t") 
+  data_name <- gsub("_rsem_genes_original_results", "", file)
+  data_list[[data_name]] <- data
+}
+
+# 2-2 30% 이상의 환자 데이터에서 TPM 1 이상인 gene만 남기고 제거
+combined_data <- bind_rows(data_list, .id = "Dataset")
+
+filtered_data <- combined_data %>%
+  group_by(gene_id) %>%
+  filter(mean(TPM >= 1, na.rm = TRUE) >= 0.3)
+
+cleaned_data_list <- split(filtered_data, filtered_data$Dataset)
+
+data_list <- cleaned_data_list
+
+# 2-3 Calculate Log2(TPM+1)
+# log2(TPM+1) 변환 함수 정의
+log2_transform <- function(data) {
+  return(log2(data + 1))
+}
+
+for (i in 1:length(data_list)) {
+  data_list[[i]]$TPM <- log2_transform(data_list[[i]]$TPM)
+}
+
+for (i in 1:length(data_list)) {
+  colnames(data_list[[i]])[colnames(data_list[[i]]) == "TPM"] <- "log2(TPM+1)"
+}
+
+for (i in 1:length(data_list)) {
+  data_list[[i]] <- data_list[[i]][, c("gene_id", "log2(TPM+1)")]
+}
+
+## 2-4 gene_id 룰 Ensemble ID로 변경
+# 111N 데이터 추출 (예시로 첫 번째 데이터를 사용)
+data_111N <- data_list[[1]]
+data_112T <- data_list[[2]]
+gene_ids <- data_111N$gene_id
+gene_ids2 <- data_112T$gene_id
+gene_ids<- as.character(gene_ids)
+gene_ids2<- as.character(gene_ids2)
+head(gene_ids)
+
+# Ensembl 데이터베이스에 연결하기
+ensembl <- useMart("ensembl", dataset = "hsapiens_gene_ensembl")
+
+# gene_id를 gene name으로 변환
+gene_names <- getBM(attributes = c("ensembl_gene_id", "external_gene_name"),
+                    filters = "ensembl_gene_id", 
+                    values = gene_ids, 
+                    mart = ensembl)
+gene_names2 <- getBM(attributes = c("ensembl_gene_id", "external_gene_name"),
+                    filters = "ensembl_gene_id", 
+                    values = gene_ids2, 
+                    mart = ensembl)
+
+a1<- intersect(gene_names,gene_names2)
+
+gene_names$external_gene_name[is.na(gene_names$external_gene_name)] <- "NA"
+
+data_list_gene_names <- lapply(data_list, function(data) {
+  data <- data.frame(data[, 1], gene_name = gene_names$external_gene_name[match(data$gene_id, gene_names$ensembl_gene_id)], data[, 2])
+  colnames(data) <- c("gene_id", "gene_name", "log2_TPM+1")
+  return(data)
+})
+
+# 2-5 Quantile normalization of Log2(TPM+1)
+data_names <- names(data_list_gene_names)
+
+# 모든 환자 데이터프레임에서 log2(TPM+1) 열 추출
+TPM_list <- lapply(data_list_gene_names, function(data) data$"log2_TPM+1")
+
+TPM_matrix <- do.call(cbind, TPM_list)
+
+# Quantile normalization 수행
+norm_matrix <- normalize.quantiles(TPM_matrix)
+
+# 다시 데이터프레임 형태로 변환
+norm_data_list <- lapply(seq_along(data_list_gene_names), function(i) {
+  data <- data_list_gene_names[[i]]
+  data$"log2_TPM+1" <- norm_matrix[, i]
+  return(data)
+})
+
+names(norm_data_list) <- data_names
+norm_data_list_final <- norm_data_list
+
+# 2-6 Option: Median centering of quantile-normalized data
+# Median centering 수행
+for (i in 1:length(norm_data_list)) {
+  df <- norm_data_list[[i]]
+  df$"log2_TPM+1" <- df$"log2_TPM+1" - median(df$"log2_TPM+1", na.rm = TRUE)
+  norm_data_list[[i]] <- df
+}
+
+head(norm_data_list[[1]])
+
+# 2-7 Quantile normalization 다시 수행
+# 모든 환자 데이터프레임에서 log2(TPM+1) 열 추출
+TPM_list2 <- lapply(norm_data_list, function(data) data$"log2_TPM+1")
+
+# log2(TPM+1) 열을 행렬로 변환
+TPM_matrix2 <- do.call(cbind, TPM_list2)
+
+# Quantile normalization 수행
+norm_matrix2 <- normalize.quantiles(TPM_matrix2)
+
+# 데이터프레임 형태로 변환
+norm_data_list_final <- lapply(seq_along(norm_data_list), function(i) {
+  data <- norm_data_list[[i]]
+  data$"log2_TPM+1" <- norm_matrix2[, i]
+  return(data)
+})
+
+# 결과 리스트에 데이터프레임의 이름 할당
+names(norm_data_list_final) <- data_names
+
+## 2-8 Log2(TPM+1) fold change 구하기
+# 홀수 환자 선택
+odd_patients <- seq(from = 1, to = 5759, by = 2)
+fold_change_list <- list()
+
+# 홀수N, 짝수T 환자 샘플 이름 지정 후 log2(TPM+1)FC 구하기
+for (patient in odd_patients) {
+  normal_id <- sprintf("%dN", patient)
+  tumor_id <- sprintf("%dT", patient + 1)
+  normal_sample <- norm_data_list_final[[normal_id]]
+  tumor_sample <- norm_data_list_final[[tumor_id]]
+  fold_change <- tumor_sample$"log2_TPM+1" - normal_sample$"log2_TPM+1"
+  if (!all(is.na(fold_change))) {
+    result_id <- sprintf("%dN/%dT", patient, patient + 1)
+    fold_change_list[[result_id]] <- fold_change
+  }
+}
+
+# 만들어진 T/N fold change list를 다시 gene_id, gene_name에 대입
+# data_list_gene_names로부터 대표로 하나의 데이터프레임 추출하기
+data_gn_111N <- norm_data_list_final[[1]]
+
+gene_fold_change <- list()
+
+# fold_change_list의 이름을 가져와서 처리
+for (result_id in names(fold_change_list)) {
+  fold_change <- fold_change_list[[result_id]]
+  fold_change_df <- data.frame(gene_id = data_gn_111N$gene_id,
+                               gene_name = data_gn_111N$gene_name,
+                               Fold_change_log2_TPM_plus_1 = fold_change)
+  gene_fold_change[[result_id]] <- fold_change_df
+}
+
+head(gene_fold_change)
+
+# 2-9 gene_fold_change의 모든 환자 데이터프레임 병합 및 matrix화
+fold_change_df_list <- lapply(gene_fold_change, function(df) {
+  df_subset <- df[, "Fold_change_log2_TPM_plus_1", drop = FALSE]
+  return(df_subset)
+})
+merged_df <- bind_cols(fold_change_df_list)
+colnames(merged_df) <- names(gene_fold_change)
+
+# gene_name 열을 추가할 위치 정하기
+insert_position <- 1
+
+# merged_df에 gene_name 열 추가
+merged_df <- cbind(merged_df[, 1:insert_position - 1], gene_fold_change[[1]]$gene_name, merged_df[, insert_position:ncol(merged_df)])
+
+# 열의 이름을 "gene_name"으로 설정
+colnames(merged_df)[insert_position] <- "gene_name"
+```
+
+## 3. protein data setting
+
+```{r, results='hide'}
+# 3-1 protein 데이터 불러오기
+protein_data <- read.csv("/Users/jibeomko/Desktop/LAIDD_GC/Proteomics/protein_expression_change.txt",header=TRUE,sep="\t")
+
+str(protein_data)
+
+# protein 데이터에서 Symbol 결측치 제거하기
+protein_data1 <- subset(protein_data, !is.na(Symbol) & Symbol != "#N/A")
+
+# major peptide만 남기기
+protein_data2 <- protein_data1[!duplicated(protein_data1$Symbol), ]
+
+# 30% 이상의 환자에서 protein abundance 측정 가능한 protein 데이터 선택
+selected_protein_data <- protein_data2[protein_data2$X..of.value >= 80/3,]
+
+head(selected_protein_data)
+```
+
+## 4. mRNA-protein mapping by gene symbol
+
+```{r, results='hide'}
+# 4-1 protein 데이터 gene symbol 추출
+protein_genes <- selected_protein_data[,5]
+
+str(protein_genes) #4675개
+
+# 4-2 mRNA 데이터 gene symbol 추출
+mRNA_genes <- merged_df[,1]
+
+str(mRNA_genes) #17065개
+
+# 4-3 protein 데이터 gene symbol 중복 제거
+set_A <- unique(protein_genes)
+
+# 4-4 mRNA 데이터 gene symbol 중복 제거
+set_B <- unique(mRNA_genes)
+
+# 4-5 protein & mRNA gene의 교집합 구하기
+intersection <- intersect(set_A,set_B)
+
+# 4-6 교집합 gene의 개수 구하기
+intersection_count <- length(intersection)
+
+intersection_count  #4303개
+
+# protein gene set 설정
+final_protein_data <- selected_protein_data[selected_protein_data$Symbol %in% intersection,]
+
+# mRNA gene set 설정
+final_mRNA_data <- merged_df[merged_df$gene_name %in% intersection,]
+
+# protein data에서 Symbol과 sample별 fold change 값만 남기고 제거
+final_protein_data2 <- final_protein_data[,-c(1,2,3,4,6)]
+
+# protein data에서 gene symbol을 기준으로 정렬
+sorted_protein <- final_protein_data2[order(final_protein_data2$Symbol),]
+
+# protein data에서 환자 샘플 번호 오름차순으로 정렬 (mRNA 데이터와 환자 샘플 순서 일치시키기 위해)
+sorted_protein <- sorted_protein %>% dplyr::select(order(as.numeric(sub("^N(\\d+).*","\\1",names(sorted_protein))))) %>% dplyr::select(81,1:80)
+
+# mRNA data에서 gene symbol을 기준으로 행 정렬
+sorted_mRNA <- final_mRNA_data[order(final_mRNA_data$gene_name),]
+```
+
+## 5. Spearman Correlation Analysis
+
+```{r, results='hide'}
+# 5-1 패키지 불러오기
+library(ggplot2)
+library(reshape2)
+library(ggdist)
+
+## 5-2. Spearman의 상관 계수 및 p-value 계산 (결측치 제거)
+# correlation matrix 초기화 (4305 x 80)
+cor_matrix <- matrix(NA, nrow = 4303, ncol = 80)
+
+# p-value matrix 초기화 (4305 x 80)
+p_value_matrix <- matrix(NA, nrow = 4303, ncol = 80)
+
+# protein 데이터 fold change 값만 저장하기 (gene symbol 제외)
+my_protein <- sorted_protein[,-1]
+
+rownames(my_protein) <- NULL
+
+# mRNA 데이터 fold change 값만 저장하기 (gene symbol 제외)
+my_mRNA <- sorted_mRNA[,-1]
+
+rownames(my_mRNA) <- NULL
+
+# Spearman 상관 분석
+for (i in 1:4303) {
+  for (j in 1:80) {
+    cor_test_result <- cor.test(as.numeric(my_mRNA[i, ]), as.numeric(my_protein[i, ]), method = "spearman", use = "complete.obs")
+    cor_matrix[i, j] <- cor_test_result$estimate
+    p_value_matrix[i, j] <- cor_test_result$p.value
+  }
+}
+
+head(cor_matrix)
+head(p_value_matrix)
+
+# p-value 매트릭스 데이트프레임으로 변환
+p_value_df <- as.data.frame(p_value_matrix)
+
+# p-value 데이터프레임 행이름/열이름 설정 
+rownames(p_value_df) <- rownames(my_mRNA)
+
+colnames(p_value_df) <- colnames(my_mRNA)
+
+head(p_value_df)
+
+# 상관 계수 데이터 프레임 생성
+correlation_df <- data.frame(cor_matrix=cor_matrix)
+
+colnames(correlation_df) <- colnames(my_mRNA)
+
+head(correlation_df)
+
+# 5-3 상관계수 평균값 구하기
+spearman_corr_matrix <- as.matrix(correlation_df)
+
+# 상관계수 평균값 계산  
+overall_mean <- mean(spearman_corr_matrix)
+
+overall_mean  # 0.2932558 (논문: 0.28)
+
+# 5-4 양의 상관 계수 % 확인
+spearman_corr_vector <- as.vector(correlation_df)
+
+spearman_corr_vector
+
+length(rownames(correlation_df))  #4303개
+
+positive_correlations <- colSums(correlation_df> 0, na.rm = TRUE)
+
+positive_correlations   # 3979개
+
+percentage_positive_corr <- (3979 / 4303) * 100
+
+percentage_positive_corr   # 92.47% (논문 : 91.4%)
+
+# 5-5 FDR이 0.01 미만인 (유의미한) positive correlation 계산
+total_genes <- 4303
+total_samples <- 80
+
+# p-value를 1차원 벡터로 변환하고 NA 값 제외
+p_values <- unlist(p_value_df)[!is.na(unlist(p_value_df))]
+
+# Benjamini-Hochberg FDR 계산
+bh_fdr <- matrix(p.adjust(p_values, method = "BH"), nrow = total_genes, ncol = total_samples, byrow = TRUE)
+head(bh_fdr)
+str(bh_fdr)
+positive_FDR <- bh_fdr[correlation_df > 0]
+
+range(positive_FDR)
+
+# FDR < 0.01 인 것들의 개수 세기
+count1 <- sum(positive_FDR != 0 & positive_FDR < 0.01, na.rm = TRUE) #개수 : 122159개
+
+# FDR < 0.01 인 것들의 비율 계산
+count1/(total_genes*total_samples)*100 #비율 : 35.53044%
+
+# FDR < 0.01 인 비율 변수로 저장
+percentage_FDR <- 35.53044
+```
+
+## Figure 2-A Plot
+
+```{r pressure1, echo=FALSE}
+# 5-6 Figure 2-A 그래프 그리기 : Distributions of Spearman's correlation coefficients
+correlation_values <- unlist(correlation_df)
+# 그래프 그리기
+ggplot(data = data.frame(correlation_values = correlation_values), 
+       aes(x = correlation_values)) + 
+  geom_histogram(aes(y = ..density..), binwidth = 0.035, fill = "darkblue",color="black",alpha = 0.5) + 
+  geom_density(color = "red3",alpha = 0.5, linewidth =0.8) + 
+  geom_vline(xintercept = overall_mean, linetype = "dashed", color = "green3", linewidth = 1) + 
+  theme_minimal()+
+  theme(legend.title = element_blank(),
+        panel.grid.major = element_blank(), 
+        panel.grid.minor = element_blank()) 
+```
+
+```{r pressure2, echo=FALSE}
+ggplot(data = data.frame(correlation_values = correlation_values),
+       aes(x = correlation_values)) + 
+  geom_histogram(aes(y = ..density..), binwidth = 0.035, fill = "darkorange",color="black",alpha = 0.5) + 
+  geom_density(color = "red3",alpha = 0.5, linewidth =0.8) + 
+  geom_vline(xintercept = overall_mean, linetype = "dashed", color = "green3", linewidth = 1) + 
+  theme_minimal()+
+  theme(legend.title = element_blank(),
+        panel.grid.major = element_blank(), 
+        panel.grid.minor = element_blank(),
+        axis.line = element_line(color = "black"))
+```
+
+두개의 그래프를 그린 후 Illustrator로 합침
+
+## 6. KEGG Pathway 분석 (enrichKEGG)
+
+```{r, results='hide'}
+# 패카지 없으면 알아서 설치
+library(KEGGREST)
+library(clusterProfiler)
+library(org.Hs.eg.db)
+library(dplyr)
+
+sort_a <- normal_sample %>%
+  filter(gene_name %in% final_protein_data2$Symbol) %>%
+  arrange(gene_name)
+mydata <- data.frame(id_of_genes = sort_a$gene_id, name_of_genes = sort_a$gene_name, correlation_values)
+
+# 각 gene의 평균 상관계수 계산
+A <- mydata %>%
+  group_by(id_of_genes) %>%
+  summarise(mean = mean(correlation_values))
+
+# 상위 1000개, 하위 1000개 유전자 추출
+top_1000_indices <- A %>% arrange(desc(mean)) %>% slice_head(n = 1000)
+bottom_1000_indices <- A %>% arrange(mean) %>% slice_head(n = 1000)
+
+# ID 변환
+top_genes <- bitr(top_1000_indices$id_of_genes, fromType = "ENSEMBL", toType = "ENTREZID", OrgDb = org.Hs.eg.db)
+bottom_genes <- bitr(bottom_1000_indices$id_of_genes, fromType = "ENSEMBL", toType = "ENTREZID", OrgDb = org.Hs.eg.db)
+
+top_kegg_results <- enrichKEGG(gene = top_genes$ENTREZID, organism = 'hsa') %>% 
+  arrange(p.adjust) %>% 
+  head(20)
+
+bottom_kegg_results <- enrichKEGG(gene = bottom_genes$ENTREZID, organism = 'hsa') %>%
+  arrange(p.adjust) %>%
+  head(20)
+
+pathway_ids <- c("05208", "03320", "01200", "04120", "04610", "03040")
+genelists <- list()
+
+# 각 pathway에 대한 유전자 ID
+for (i in seq_along(pathway_ids)) {
+  pathid <- paste0("path:hsa", pathway_ids[i])
+  kegggenes <- keggLink("hsa", pathid)
+  
+  genelists[[i]] <- unlist(lapply(kegggenes, function(gene) {
+    ensembl_ids <- keggGet(gene)[[1]]$DBLINKS
+    ensembl_ids <- ensembl_ids[grep("Ensembl:", ensembl_ids)]
+    if (length(ensembl_ids) > 0) strsplit(ensembl_ids, ": ")[[1]][2] else NULL
+  }))
+}
+
+# 상위 1000개 및 하위 1000개 유전자와 pathway 간 겹치는 유전자 찾기
+sort_b <- sort_a %>%
+  arrange(gene_id) %>%
+  left_join(A, by = c("gene_id" = "id_of_genes")) %>%
+  arrange(desc(mean))
+
+# 각 pathway와 일치하는 유전자 인덱스 추출
+indices_list <- lapply(genelists, function(genes) {
+  rownames(subset(sort_b, gene_id %in% genes)) %>% as.numeric()
+})
+
+# 결과 확인
+print(indices_list)
+```
+
+## Figure 2-B Plot
+
+```{r pressure3, echo=FALSE}
+# 6-4-1 over_plot
+plot(1:nrow(sort_s), sort_s$cor_mean, type = "n",
+     ylab = "Spearman's Correlation Coefficient",
+     col = "black",
+     xlim = c(0, 4303),
+     xaxt = "n",
+     xlab ="")
+# y=0 이상인 부분 파란색으로
+polygon(c(1, which(sort_s$cor_mean >= 0), nrow(sort_s)),
+        c(0, sort_s$cor_mean[sort_s$cor_mean >= 0], 0),
+        col = "blue")
+# y=0 이하인 부분 주황색으로
+polygon(c(1, which(sort_s$cor_mean < 0), nrow(sort_s)),
+        c(0, sort_s$cor_mean[sort_s$cor_mean < 0], 0),
+        col = "orange3")
+abline(h = 0, col = "black", lwd=2)
+
+# 6-4-2 under_plot
+plot(1:4303, rep(0, 4303), type = "n", 
+     xlim = c(1, 4303), ylim = c(0, length(x_values) + 1), frame.plot = FALSE, xaxt = "n", yaxt = "n", xlab="", ylab="")
+x_values <- list(top1_index, top2_index, top3_index, bottom1_index, bottom2_index, bottom3_index)
+my_colors <- c("blue", "orange3") 
+
+# 각 pathway에 해당하는 바코드 그리기
+for (i in 1:length(x_values)) {
+  if (i <= 3) {
+    barcode_height <- length(x_values) + 1 - i
+  } else {
+    barcode_height <- i - 3 
+  }
+  x <- x_values[[i]]
+  for (j in 1:length(x)) {
+    color <- ifelse(x[j] <= 3979, my_colors[1], my_colors[2])
+    rect(x[j], barcode_height - 0.4,
+         x[j] + 8, barcode_height + 0.4,
+         col = color, border = NA, lwd = 100)
+  }
+}
+```
+Illustrator로 over_plot과 under_plot 합치기
+
+## 7. Gene Set Enrichment Analysis
+
+```{r, results='hide'}
+library(clusterProfiler)
+library(msigdbr)
+library(org.Hs.eg.db)
+library(magrittr)
+library(enrichplot)
+# 기존 열 이름을 새롭게 고침
+for (i in seq(17, 5759, by = 2)) {
+  old_name <- sprintf("%dN/%dT", i, i + 1)   
+  new_name <- sprintf("N%dT%d", i, i + 1)
+  if (old_name %in% colnames(merged_df)) {
+    merged_df <- rename(merged_df, !!new_name := !!old_name)
+  }
+}
+merged_df
+selected_protein_data
+
+RNA_list <- list()
+for (i in seq(15, 5759, by = 2)) {  
+  new_name <- sprintf("N%dT%d", i, i + 1) 
+  if (new_name %in% colnames(merged_df)) {
+    NiTi_plus_1R <- merged_df$gene_name[merged_df[[new_name]] > 0]
+    RNA_list[[new_name]] <- NiTi_plus_1R
+  }
+}
+
+P_list <- list()
+for (i in seq(15, 5759, by = 2)) {  
+  new_name <- sprintf("N%dT%d", i, i + 1) 
+  if (new_name %in% colnames(selected_protein_data)) {
+    NiTi_plus_1R <- selected_protein_data$Symbol[selected_protein_data[[new_name]] > 0]
+    P_list[[new_name]] <- NiTi_plus_1R
+  }
+}
+
+P <- list()
+for (i in seq(1, length(RNA_list))) {  
+  P[[i]] <- intersect(RNA_list[[i]], P_list[[i]]) 
+}
+P
+# 모든 리스트 P의 합집합 구히기
+Union <- Reduce(union, P)
+# 합집합 결과 출력
+print(Union)
+Union <- na.omit(Union)
+
+top_2000_indices <- A %>% arrange(desc(mean)) %>% slice_head(n=2000)
+top2000 <- top_2000_indices$id_of_genes
+ensembl <- useEnsembl(biomart = "ensembl", dataset = "hsapiens_gene_ensembl")
+top2000 <- getBM(attributes = c("ensembl_gene_id", "external_gene_name"),
+                 filters = "ensembl_gene_id", 
+                 values = top2000, 
+                 mart = ensembl)
+filter <- merged_df[merged_df$gene_name %in% top2000$external_gene_name,]
+filter$mean <- rowMeans(filter[,2:ncol(filter)], na.rm = TRUE)
+filter
+Hs_hallmark_sets <- msigdbr(species = "Homo sapiens", category = "H")
+lfc_vector <- filter$mean
+names(lfc_vector) <- filter$gene_name
+
+lfc_vector <- sort(lfc_vector, decreasing = TRUE)
+head(lfc_vector)
+
+set.seed(2024)
+gsea_results <- GSEA(geneList = lfc_vector, minGSSize = 25, maxGSSize = 500, pvalueCutoff = 0.05, eps = 0, seed = TRUE, pAdjustMethod = "BH", TERM2GENE = dplyr::select(Hs_hallmark_sets, gs_name, gene_symbol))
+# GSEA analysis
+gsea_result_df <- data.frame(gsea_results@result)
+```
+
+## Ridge Plot and GSEA Plot
+
+```{r pressure4, echo=FALSE}
+ridgeplot(gsea_results)
+
+# gseaplot 그리기
+gseaplot2(gsea_results, geneSetID = "HALLMARK_EPITHELIAL_MESENCHYMAL_TRANSITION", title = "EPITHELIAL_MESENCHYMAL_TRANSITION")
+gseaplot2(gsea_results, geneSetID = "HALLMARK_OXIDATIVE_PHOSPHORYLATION", title = "OXIDATIVE_PHOSPHORYLATION")
+# Illustrator로 두개 합침
+```
+
+## 8. mRNA expression-Survival Correlation Analysis
+
+```{r, results='hide'}
+library(TCGAbiolinks)
+library(dplyr)
+library(survival)
+library(survminer)
+library(ggplot2)
+library(RTCGA)
+library(RTCGA.clinical)
+library(RTCGA.mRNA)
+library(SummarizedExperiment)
+
+# TCGA 위암 데이터 다운받아 불러오기
+dim(STAD.clinical)
+names(STAD.clinical)
+clin <- survivalTCGA(STAD.clinical, extract.cols="admin.disease_code")
+head(clin)
+table(clin$admin.disease_code)
+xtabs(~admin.disease_code+patient.vital_status, data=clin) %>% addmargins()
+
+query <- GDCquery(
+  project = "TCGA-STAD",
+  data.category = "Transcriptome Profiling",  
+  data.type = "Gene Expression Quantification", 
+  workflow.type = "STAR - Counts")
+
+GDCdownload(query)
+expr_matrix <- GDCprepare(query)
+head(expr_matrix)
+
+expression_data <- assay(expr_matrix, i = 'tpm_unstrand')
+gene_of_interest <- top_1000_indices$id_of_genes
+rownames(expression_data) <- sub("\\..*", "", rownames(expression_data))
+
+# 생존율과 발현량 사이의 상관관계 분석 (Cox PH 모델)
+for (gene in genes_of_interest) {
+  gene_expr_data <- expression_data[gene, ]
+  survival_data <- colData(expr_matrix)[, c("days_to_death", "vital_status")]
+  survival_data <- as.data.frame(survival_data)
+  common_samples <- intersect(colnames(expression_data), rownames(survival_data))
+  if (length(common_samples) == 0) {
+    stop("No common samples between expression_data and survival_data.")
+  }
+  survival_data <- survival_data[common_samples, ]
+  survival_data$gene_expr <- gene_expr_data[common_samples]
+  survival_data$vital_status <- ifelse(survival_data$vital_status == "Dead", 1, 0)
+
+  cox_model <- coxph(Surv(days_to_death, vital_status) ~ gene_expr, data = survival_data)
+
+  print(paste("Analyzing gene:", gene))
+
+  survival_data$high_expr <- ifelse(survival_data$gene_expr > median(survival_data$gene_expr), "High", "Low")
+  
+  if (length(unique(survival_data$high_expr)) < 2) {
+    print(paste("Skipping gene:", gene, "due to insufficient group variance."))
+    next
+  }
+  
+  km_fit <- survfit(Surv(days_to_death, vital_status) ~ high_expr, data = survival_data)
+  
+  log_rank_test <- survdiff(Surv(days_to_death, vital_status) ~ high_expr, data = survival_data)
+  p_value <- 1 - pchisq(log_rank_test$chisq, length(log_rank_test$n) - 1)
+  # p-value 조정가능 (0.001로 더 낮게 관찰 가능)  
+  if (!is.na(p_value) && p_value < 0.05) {
+    print(paste("Significant", gene, "with p-value:", p_value))
+    
+    significant_genes[[gene]] <- p_value
+  } else {
+    print(paste("p-value for gene", gene,":", p_value,":", "Non"))
+  }
+}
+
+# p-value가 0.05보다 작은 유전자 리스트 확인함
+print(significant_genes)
+sig <- as.matrix(significant_genes)
+sig <- rownames(sig)
+length(sig) # 47개 유전자가 유의미한 correlation 차이가 있음
+```
+
+## Kaplan-Meier Curve
+
+```{r pressure5, echo=FALSE}
+# Kaplan-Meier 생존곡선 그리기 (sig[1] ~ sig[47]까지 순서대로 대입하며 그래프 그림)
+gene_expr_data <- expression_data[sig[1], ]
+survival_data$gene_expr <- gene_expr_data[common_samples]
+
+# 발현량 기준으로 high/low 그룹화
+survival_data$high_expr <- ifelse(survival_data$gene_expr > median(survival_data$gene_expr), "High", "Low")
+
+km_fit <- survfit(Surv(days_to_death, vital_status) ~ high_expr, data = survival_data)
+
+ggsurvplot(km_fit, data = survival_data, 
+           title = paste("Kaplan-Meier for", sig[21]),
+           pval = TRUE, conf.int = TRUE, palette = c("red", "blue"))
+
+```

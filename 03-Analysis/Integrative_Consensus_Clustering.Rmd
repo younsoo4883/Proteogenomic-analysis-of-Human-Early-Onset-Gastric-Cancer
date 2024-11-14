@@ -1,0 +1,129 @@
+---
+title: "Integrative_Consensus_Clustering"
+author: "Younsoo Kang"
+date: "2024-10-18"
+output: html_document
+---
+
+```{r}
+suppressMessages(library(readr))
+suppressMessages(library(ConsensusClusterPlus))
+suppressMessages(library(ComplexHeatmap))
+suppressMessages(library(circlize))
+suppressMessages(library(colorRamp2))
+```
+
+### Load files
+```{r}
+# Load files
+path_dir <- "/Users/onco/Downloads/LAIDD_GASTRIC_R/Proteomics/Proteomics"
+
+# Indicative matrix of each molecular type
+iclust_idx_rna <- as.matrix(read.csv(file.path(path_dir, "icluster_index_rna.csv"), row.names=1))
+iclust_idx_ptn <- as.matrix(read.csv(file.path(path_dir, "icluster_index_p.csv"), row.names=1))
+iclust_idx_phos <- as.matrix(read.csv(file.path(path_dir, "icluster_index_pp.csv"), row.names=1))
+iclust_idx_glyco <- as.matrix(read.csv(file.path(path_dir, "icluster_index_gp.csv"), row.names=1))
+
+dim(iclust_idx_rna)
+dim(iclust_idx_ptn)
+dim(iclust_idx_phos)
+dim(iclust_idx_glyco)
+```
+
+### preprocessing
+```{r}
+sorted_cols <- colnames(iclust_idx_rna)[order(colnames(iclust_idx_rna))]
+iclust_idx_rna <- iclust_idx_rna[, sorted_cols]
+iclust_idx_ptn <- iclust_idx_ptn[, sorted_cols]
+iclust_idx_phos <- iclust_idx_phos[, sorted_cols]
+iclust_idx_glyco <- iclust_idx_glyco[, sorted_cols]
+
+# Merged iclust_idx matrix
+iclust_idx_matrix <- rbind(iclust_idx_rna, iclust_idx_ptn, iclust_idx_phos, iclust_idx_glyco)
+```
+
+### Consensus clustering
+```{r}
+# k=2~8, 1000 repetitions, 80% samples, hierarchical clustering
+results = ConsensusClusterPlus(iclust_idx_matrix,maxK=8,reps=1000,pItem=0.8,pFeature=1,
+                               title="/Users/onco/Downloads/LAIDD_GASTRIC_R/Proteomics/Proteomics/Consensus_Clustering",clusterAlg="hc",distance="pearson",plot="png")
+```
+
+### Heatmap
+```{r}
+# Subtype
+Class <- as.matrix(t(results[[4]][["consensusClass"]]))
+
+# add consensus cluster
+Class <- rbind(iclust_idx_matrix, Class[1, ])
+#View(Class)
+rownames(Class)[nrow(Class)] <- "class"
+Class.t <- t(Class)  
+
+#write.csv(Class_transpose, "/Users/onco/Downloads/LAIDD_GASTRIC_R/Proteomics/Proteomics/CCP.csv", row.names = TRUE)
+
+Class.t.sort <- Class.t[order(Class.t[, "class"]), ]
+Class.sort <- t(Class.t.sort)
+dim(Class.sort)
+
+Consensus_class <- as.data.frame(Class.sort[13,])
+colnames(Consensus_class) <- "Subtype" 
+
+# exclude subtype information
+Class.sort = Class.sort[-13,]
+```
+
+
+### Clinical data
+```{r}
+# meta data
+meta <- read.csv("/Users/onco/Downloads/LAIDD_GASTRIC_R/Proteomics/Proteomics/clinical_info.csv", header=T, row.names=1)
+
+# sort
+meta.sort <- meta[colnames(Class.sort), ]
+meta.sort[meta.sort$Histology == "N/A",]$Histology <- "Others"
+```
+
+### Integrative Consensus Heatmap
+```{r}
+# Color
+col_fun = colorRamp2(c(0, 1), c("black", "red"))
+
+# Bottom annotation
+ha1=HeatmapAnnotation(df = meta.sort, col = list(
+  Histology = c("Diffuse" = "ivory", "Intestinal" = "darkorchid4", "Mixed" = "darkorchid1", "Others" = "gray"),
+  MSI = c("MSI-H" = "darkgreen", "MSS/MSI-L" = "ivory"),
+  EBV = c("EBV-" = "ivory", "EBV+" = "darkorange2"),
+  Gender = c("F" = "pink", "M" = "skyblue"),
+  pStage = c("I" = "azure3", "II" = "gold3", "III" = "coral3", "IV" = "firebrick4")),
+  show_annotation_name = TRUE, annotation_name_offset = unit(2, "mm"), border=T,
+annotation_name_side = "left") 
+
+
+# Top annotation
+ha2=HeatmapAnnotation(df = Consensus_class, which="col", col = list(Subtype=
+  c("1" = "dodgerblue3","2" = "lightblue", "3" = "goldenrod1", "4" = "darkkhaki")),
+  show_annotation_name = FALSE, show_legend = TRUE
+)
+
+# Integrative heatmap
+integrative_heatmap <- Heatmap(Class.sort,
+                    cluster_columns = FALSE,
+                    show_column_names=FALSE,
+                    clustering_distance_rows = "pearson",
+                    top_annotation = ha2,
+                    bottom_annotation = ha1,
+                    col=col_fun,
+                    show_heatmap_legend=FALSE
+                    )
+
+draw(integrative_heatmap, heatmap_legend_side = "right")
+```
+
+### Save as PDF
+```{r}
+pdf("/Users/Onco/Downloads/LAIDD_GASTRIC_R/Proteomics/Proteomics/integrative_clustering_heatmap.pdf", width = 10, height = 6)
+integrative_heatmap
+dev.off()
+```
+

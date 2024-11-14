@@ -1,0 +1,92 @@
+---
+title: "01_mutaion_annotation"
+output:
+  pdf_document: default
+  html_document: default
+date: "2024-11-12"
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+## R Markdown
+
+This is an R Markdown document. Markdown is a simple formatting syntax for authoring HTML, PDF, and MS Word documents. For more details on using R Markdown see <http://rmarkdown.rstudio.com>.
+
+```{r}
+install.packages("png")
+install.packages("gridExtra")
+
+# 패키지 로드
+library(ComplexHeatmap)
+library(colorRamp2)
+library(grid)
+library(png)
+library(gridExtra)
+
+# 첫 번째 열 어노테이션 (Clinical Meta Data)
+file_path <- "patientmeta.csv"
+anno <- read.csv(file_path)
+ha1 <- HeatmapAnnotation(
+  df = anno[,-1], 
+  col = list(
+    EBV = c("EBV-" = "white", "EBV+" = "orange"),
+    MSI = c("MSI-H" = "green", "MSS/MSI-L" = "white"),
+    Gender = c("F" = "pink", "M" = "blue"),
+    Histology = c("Diffuse" = "white", "Intestinal" = "darkorchid4", "Mixed" = "darkorchid1", "Others" = "gray")
+  ), 
+  show_legend = FALSE, 
+  show_annotation_name = TRUE, 
+  annotation_name_offset = unit(2, "mm"), 
+  border = TRUE
+)
+
+# 두 번째 열 어노테이션 (Mutation Subtype Data)
+file_path2 <- "mutationtype.csv"
+anno2 <- read.csv(file_path2)
+ha2 <- HeatmapAnnotation(
+  df = anno2[,-1], 
+  col = list(
+    CDH1 = c("Frame shift" = "red", "Missense" = "green", "Nonsense" = "gray", "Splice site" = "purple", "In frame Indel" = "pink", "0" = "white"),
+    TP53 = c("Frame shift" = "red", "Missense" = "green", "Nonsense" = "gray", "Splice site" = "purple", "In frame Indel" = "pink", "0" = "white"),
+    ARID1A = c("Frame shift" = "red", "Missense" = "green", "Nonsense" = "gray", "Splice site" = "purple", "In frame Indel" = "pink", "0" = "white"),
+    BANP = c("Frame shift" = "red", "Missense" = "green", "Nonsense" = "gray", "Splice site" = "purple", "In frame Indel" = "pink", "0" = "white"),
+    RHOA = c("Frame shift" = "red", "Missense" = "green", "Nonsense" = "gray", "Splice site" = "purple", "In frame Indel" = "pink", "0" = "white"),
+    MUC5B = c("Frame shift" = "red", "Missense" = "green", "Nonsense" = "gray", "Splice site" = "purple", "In frame Indel" = "pink", "0" = "white")
+  ), 
+  show_annotation_name = TRUE, 
+  annotation_name_offset = unit(2, "mm"), 
+  border = TRUE, 
+  show_legend = FALSE
+)
+
+# 두 개의 열 어노테이션을 수직으로 결합
+combined_annotation <- ha1 %v% ha2
+
+lgd_EBV <- Legend(labels = c("EBV-", "EBV+"), legend_gp = gpar(fill = c("white", "orange")), 
+                  title = "EBV", ncol = 1, legend_width = unit(6, "cm"), legend_height = unit(3, "cm"))
+
+lgd_MSI <- Legend(labels = c("MSI-H", "MSS/MSI-L"), legend_gp = gpar(fill = c("green", "white")), 
+                  title = "MSI", ncol = 1, legend_width = unit(6, "cm"), legend_height = unit(3, "cm"))
+
+lgd_Gender <- Legend(labels = c("F", "M"), legend_gp = gpar(fill = c("pink", "blue")), 
+                     title = "Gender", ncol = 1, legend_width = unit(6, "cm"), legend_height = unit(3, "cm"))
+
+lgd_Histology <- Legend(labels = c("Diffuse", "Intestinal", "Mixed", "Others"), 
+                        legend_gp = gpar(fill = c("white", "darkorchid4", "darkorchid1", "gray")), 
+                        title = "Histology", ncol = 1, legend_width = unit(8, "cm"), legend_height = unit(3, "cm"))
+
+lgd_mutation <- Legend(labels = c("Frame shift", "Missense", "Nonsense", "Splice site", "In frame Indel"), 
+                       legend_gp = gpar(fill = c("red", "green", "gray", "purple", "pink")), 
+                       title = "Mutation Type", ncol = 1, legend_width = unit(8, "cm"), legend_height = unit(4, "cm"))
+
+combined_legend <- packLegend(lgd_EBV, lgd_MSI, lgd_Gender, lgd_Histology, lgd_mutation, direction = "horizontal")
+
+# 이미지 파일로 저장
+png("file_name.png", width = 1000, height = 800)
+draw(combined_annotation, annotation_legend_list = combined_legend, annotation_legend_side = "bottom")
+dev.off()
+
+```
+
