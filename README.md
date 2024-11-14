@@ -1,5 +1,5 @@
 # Proteogenomic-analysis-of-Human-Early-Onset-Gastric-Cancer
-=======
+
 
 Summary
 -------
@@ -14,7 +14,7 @@ Find the snakemake documentation (https://snakemake.readthedocs.io/en/stable/tut
 
     snakemake --snakefile [Snakefile] --cores [numb_of_cores] --use-conda
 
-Downstream analysis were constructed using R or python programming language.
+Downstream analysis were performed using R or python programming language.
 
 
 Reference
