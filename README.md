@@ -32,4 +32,3 @@ Reference
 -------
 
 Mun DG, Bhin J, et al. Proteogenomic Characterization of Human Early-Onset Gastric Cancer. Cancer Cell. 2019 Jan 14;35(1):111-124.e10. doi: 10.1016/j.ccell.2018.12.003. PMID: 30645970.
-(https://github.com/user-attachments/assets/6d4b82d6-89ef-4826-b622-e35b8558444a)
